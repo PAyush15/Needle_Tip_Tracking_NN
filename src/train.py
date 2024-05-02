@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from SiameseNet import SiameseNetwork
+from src.models.SiameseNet import SiameseNetwork
 from src.data.prep_dataset_csv import train_loader
 import yaml
 
