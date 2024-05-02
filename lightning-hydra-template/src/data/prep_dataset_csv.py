@@ -1,6 +1,7 @@
 import pandas as pd
 import cv2
 import os
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
@@ -34,6 +35,7 @@ class CustomDataset(Dataset):
             left_image = self.transform(left_image)
             right_image = self.transform(right_image)
         
+
         left_points = left_points.strip('()').split(',')
         # Convert string values to integers
         left_points = [float(value) for value in left_points]
@@ -53,6 +55,7 @@ class CustomDataset(Dataset):
         points_3d = torch.tensor(points_3d)
         return left_image, right_image, left_points, right_points, points_3d
 
+
 # Train loader
 train_csv_files = ['data/CSVs/Training_5per.csv', 'data/CSVs/Training_10per.csv', 'data/CSVs/Training_15per.csv']
 image_folders_left = ['src/data/Needle_Images_New/Training_Data_Left_5per_gelatin/', 
@@ -70,6 +73,7 @@ transform = transforms.Compose([
     # Add any necessary transformations here
     transforms.ToTensor(),
 ])
+
 
 train_datasets = []
 for train_dfs, folder_left, folder_right in zip(dfs, image_folders_left, image_folders_right):
