@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
 from SiameseNet import SiameseNetwork
-from prep_dataset import eval_loader
+from src.data.prep_dataset_csv import eval_loader
 import yaml
 
 torch.cuda.empty_cache()
 
 # Load configurations from config.yaml
-with open('src/models/config.yaml', 'r') as f:
+with open('configs/config.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 # Set device

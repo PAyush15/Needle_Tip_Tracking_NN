@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
 from SiameseNet import SiameseNetwork
-from prep_dataset import train_loader
+from src.data.prep_dataset_csv import train_loader
 import yaml
 
 torch.cuda.empty_cache()
 
 # Load configurations from config.yaml
-with open('src/models/config.yaml', 'r') as f:
+with open('configs/config.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 # Set device
@@ -34,13 +34,10 @@ for epoch in range(config['num_epochs']):
         points_3d = points_3d.to(device)
         
         print(f'Read data batch: {batch_idx}')
-        #print(f'L,R,M devices: {left_images.device}, {right_images.device}, {next(model.parameters()).device}')
 
         # Forward pass
         predicted_points_3d = model(left_images, right_images)
         
-        #print(f'Predicted point of batch: {batch_idx}')
-
         # Compute loss
         loss = criterion(predicted_points_3d, points_3d)
         
@@ -53,3 +50,4 @@ for epoch in range(config['num_epochs']):
         running_loss += loss.item()
         
     print(f"Epoch {epoch+1}, Loss: {running_loss}")
+
