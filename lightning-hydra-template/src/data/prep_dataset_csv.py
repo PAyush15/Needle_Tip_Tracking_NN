@@ -1,11 +1,11 @@
 import pandas as pd
 import cv2
 import os
-import numpy as np
-from sklearn.model_selection import train_test_split
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
+from torch.utils.data import ConcatDataset
 
 # Custom Dataset class
 class CustomDataset(Dataset):
@@ -35,20 +35,18 @@ class CustomDataset(Dataset):
             left_image = self.transform(left_image)
             right_image = self.transform(right_image)
         
-        left_points = left_points.strip('()')
-        values = left_points.split(',')
-        # Convert string values to integers
-        left_points = [float(value) for value in values]
-        
-        right_points = right_points.strip('()')
-        values = right_points.split(',')
-        # Convert string values to integers
-        right_points = [float(value) for value in values]
 
-        points_3d = points_3d.strip('()')
-        values = points_3d.split(',')
+        left_points = left_points.strip('()').split(',')
         # Convert string values to integers
-        points_3d = [float(value) for value in values]
+        left_points = [float(value) for value in left_points]
+        
+        right_points = right_points.strip('()').split(',')
+        # Convert string values to integers
+        right_points = [float(value) for value in right_points]
+
+        points_3d = points_3d.strip('()').split(',')
+        # Convert string values to integers
+        points_3d = [float(value) for value in points_3d]
 
         left_image = torch.tensor(left_image)
         right_image = torch.tensor(right_image)
@@ -57,13 +55,18 @@ class CustomDataset(Dataset):
         points_3d = torch.tensor(points_3d)
         return left_image, right_image, left_points, right_points, points_3d
 
-# Example usage
-csv_file = 'data/test_file.csv'
-image_folder_left = 'src/data/Training_Data_Left_5per_gelatin/'
-image_folder_right = 'src/data/Training_Data_Right_5per_gelatin/'
+
+# Train loader
+train_csv_files = ['data/CSVs/Training_5per.csv', 'data/CSVs/Training_10per.csv', 'data/CSVs/Training_15per.csv']
+image_folders_left = ['src/data/Needle_Images_New/Training_Data_Left_5per_gelatin/', 
+                     'src/data/Needle_Images_New/Training_Data_Left_10per_gelatin/',
+                     'src/data/Needle_Images_New/Training_Data_Left_15per_gelatin/']
+image_folders_right = ['src/data/Needle_Images_New/Training_Data_Right_5per_gelatin/',
+                      'src/data/Needle_Images_New/Training_Data_Right_10per_gelatin/',
+                      'src/data/Needle_Images_New/Training_Data_Right_15per_gelatin/']
 
 # Read CSV file with UTF-8 encoding
-train_df, eval_df = train_test_split(pd.read_csv(csv_file, encoding='utf-8'), test_size=0.2)
+train_dfs = [pd.read_csv(file, encoding='utf-8') for file in csv_files]
 
 # Define transformations for images (if needed)
 transform = transforms.Compose([
@@ -71,15 +74,31 @@ transform = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-# Create train and eval datasets
-train_dataset = CustomDataset(train_df, image_folder_left, image_folder_right, transform=transform)
-eval_dataset = CustomDataset(eval_df, image_folder_left, image_folder_right, transform=transform)
+
+train_datasets = []
+for train_dfs, folder_left, folder_right in zip(dfs, image_folders_left, image_folders_right):
+    train_datasets.append(CustomDataset(df, folder_left, folder_right, transform=transform))
+
+# Combine datasets into a single dataset
+combined_train_dataset = ConcatDataset(datasets)
+
+
+eval_csv_files = ['data/CSVs/Validation_5per.csv', 'data/CSVs/Validation_10per.csv', 'data/CSVs/Validation_15per.csv']
+
+# Read CSV file with UTF-8 encoding
+eval_dfs = [pd.read_csv(file, encoding='utf-8') for file in csv_files]
+
+eval_datasets = []
+for eval_dfs, folder_left, folder_right in zip(dfs, image_folders_left, image_folders_right):
+    eval_datasets.append(CustomDataset(df, folder_left, folder_right, transform=transform))
+
+# Combine datasets into a single dataset
+combined_eval_dataset = ConcatDataset(datasets)
 
 # Create train and eval data loaders
-train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
-eval_loader = DataLoader(eval_dataset, batch_size=2, shuffle=False)
+train_loader = DataLoader(combined_train_dataset, batch_size=4, shuffle=True)
+eval_loader = DataLoader(combined_eval_dataset, batch_size=4, shuffle=False)
 
-# Print information about the DataLoader objects
 print("DataLoader objects created successfully.")
 print(f"Size of training dataset: {len(train_loader.dataset)}")
-print(f"Size of validation dataset: {len(eval_loader.dataset)}")
+#print(f"Size of validation dataset: {len(eval_loader.dataset)}")
