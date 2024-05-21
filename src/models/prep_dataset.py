@@ -8,10 +8,9 @@ import torchvision.transforms as transforms
 
 
 class CustomDataset(Dataset):
-    def __init__(self, hdf5_file, group_names, device, transform=None):
+    def __init__(self, hdf5_file, group_names, transform=None):
         self.hdf5_file = hdf5_file
         self.group_names = group_names
-        self.device = device
         self.transform = transform
 
         # Initialize lists to hold datasets from all groups
@@ -26,11 +25,11 @@ class CustomDataset(Dataset):
             with h5py.File(hdf5_file, 'r') as h5f:
                 dataset_group = h5f[group_name]
                 # Append datasets from current group to the lists
-                self.left_images.extend(dataset_group['imageLeft'])
-                self.right_images.extend(dataset_group['imageRight'])
-                self.left_points.extend(dataset_group['Left_2D'])
-                self.right_points.extend(dataset_group['Right_2D'])
-                self.points_3d.extend(dataset_group['3D_Point'])
+                self.left_images.extend(dataset_group['imageLeft'][:])
+                self.right_images.extend(dataset_group['imageRight'][:])
+                self.left_points.extend(dataset_group['Left_2D'][:])
+                self.right_points.extend(dataset_group['Right_2D'][:])
+                self.points_3d.extend(dataset_group['3D_Point'][:])
 
     def __len__(self):
         return len(self.left_images)
@@ -61,17 +60,17 @@ class CustomDataset(Dataset):
         points_3d = points_3d.decode('utf-8').strip('()').split(',')
         points_3d = [float(value) for value in points_3d]
 
-        left_image = torch.tensor(left_image).to(self.device)
-        right_image = torch.tensor(right_image).to(self.device)
-        left_points = torch.tensor(left_points).to(self.device)
-        right_points = torch.tensor(right_points).to(self.device)
-        points_3d = torch.tensor(points_3d).to(self.device)
+        left_image = torch.tensor(left_image)
+        right_image = torch.tensor(right_image)
+        left_points = torch.tensor(left_points)
+        right_points = torch.tensor(right_points)
+        points_3d = torch.tensor(points_3d)
 
         return left_image, right_image, left_points, right_points, points_3d
 
 # Load files and define group names
-train_hdf5_file = 'data/training.h5' 
-eval_hdf5_file = 'data/validation.h5'
+train_hdf5_file = 'data/Training.h5' 
+#eval_hdf5_file = 'data/Validation.h5'
 group_names = ['5per_dataset', '10per_dataset', '15per_dataset']
 
 # Define transformations for images (if needed)
@@ -79,16 +78,18 @@ transform = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-#Set the device
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Read files..........')
 
 # Create datasets and data loaders
-train_dataset = CustomDataset(train_hdf5_file, group_names, device, transform=transform)
-eval_dataset = CustomDataset(eval_hdf5_file, group_names, device, transform=transform)
+train_dataset = CustomDataset(train_hdf5_file, group_names, transform=transform)
+#eval_dataset = CustomDataset(eval_hdf5_file, group_names, transform=transform)
 
-train_loader = DataLoader(train_dataset, batch_size=2, shuffle=False)
-eval_loader = DataLoader(eval_dataset, batch_size=2, shuffle=False)
+print(f'Datasets created. Moving to dataloaders.................')
 
-#print("DataLoader objects created successfully.")
-#print(f"Size of training dataset: {len(train_loader.dataset)}")
+train_loader = DataLoader(train_dataset, batch_size=8, shuffle=False)
+#eval_loader = DataLoader(eval_dataset, batch_size=8, shuffle=False)
+
+print("DataLoader objects created successfully.")
+
+print(f"Size of training dataset: {len(train_loader.dataset)}")
 #print(f"Size of validation dataset: {len(eval_loader.dataset)}")
