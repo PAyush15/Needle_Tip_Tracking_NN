@@ -1,4 +1,0 @@
-num_epochs: 2
-learning_rate: 0.001
-num_classes: 3
-device: cuda  # Use 'cpu' if you don't have a GPU, for GPU use 'cuda'

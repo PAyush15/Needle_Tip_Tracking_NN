@@ -3,40 +3,105 @@ import torch.nn as nn
 import torchvision.models as models
 
 import argparse
+import numpy as np
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
-from prep_dataset_csv import train_loader
+from torchvision.models import ResNet18_Weights
+from prep_dataset_csv import train_loader, eval_loader
 
 torch.cuda.empty_cache()
 
+class EarlyStopping:
+    def __init__(self, patience, delta=0, verbose=False):
+        self.patience = patience
+        self.delta = delta
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+
+    def __call__(self, val_loss, model):
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            if self.verbose:
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        if self.verbose:
+            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+        torch.save(model.state_dict(), 'Saved_Models/checkpoint.pt')
+        self.val_loss_min = val_loss
+
+
 class NeedleLocalizationNetwork(nn.Module):
-    def __init__(self, num_coordinates=3):
+    def __init__(self, num_coordinates=2):
         super(NeedleLocalizationNetwork, self).__init__()
         
-        # Load pre-trained ResNet-18 model
-        self.resnet = models.resnet18(pretrained=True)
+        # Load pre-trained DenseNet-121 model
+        self.resnet = models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
         
+        self.resnet.conv1 = nn.Conv2d(3, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+
         # Replace the fully connected layer with a new one for regression
         num_ftrs = self.resnet.fc.in_features
-        self.resnet.fc = nn.Linear(num_ftrs, num_coordinates)
+
+        self.resnet = torch.nn.Sequential(*(list(self.resnet.children())[:-2]))
+
+        # Add AdaptiveAvgPooling2d layer
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+        self.fc = nn.Linear(num_ftrs, num_coordinates)
+
+        self.dropout = nn.Dropout(0.3)  # Add dropout layer    
         
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.01)
+
     def forward(self, x):
-        # Pass input through ResNet-18
+        # Pass input through DenseNet-121
         features = self.resnet(x)
+
+        # Apply AdaptiveAvgPooling2d
+        features = self.avg_pool(features)
+        features = features.view(features.size()[0], -1)
+
+        features = self.fc(features)
+
+        features = self.dropout(features)
         return features
 
 
-def train(args, model, device, train_loader, optimizer, epoch):
+def train(args, model, device, train_loader, optimizer, scheduler, epoch):
     model.train()
 
-    # we aren't using `TripletLoss` as the MNIST dataset is simple, so `BCELoss` can do the trick.
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
 
     for batch_idx, (left_image, right_image, left_points, right_points, points_3d) in enumerate(train_loader):
-        left_image, right_image, targets = left_image.to(device), right_image.to(device), points_3d.to(device)
+
+        if batch_idx % 2 != 0:
+            continue
+
+        left_image, targets = left_image.to(device), left_points.to(device)
         optimizer.zero_grad()
         outputs = model(left_image).squeeze()
 
+        outputs = outputs.view_as(targets)
+        
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -47,34 +112,80 @@ def train(args, model, device, train_loader, optimizer, epoch):
             if args.dry_run:
                 break
 
+    scheduler.step()
+    return loss
+
 
 def test(model, device, eval_loader):
     model.eval()
     test_loss = 0
-    correct = 0
+    total_rmse = 0
+    num_samples = 0
+    total_distance = 0.0
 
     # we aren't using `TripletLoss` as the MNIST dataset is simple, so `BCELoss` can do the trick.
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
 
     with torch.no_grad():
         for batch_idx, (left_image, right_image, left_points, right_points, points_3d) in enumerate(eval_loader):
-            left_image, right_image, targets = left_image.to(device), right_image.to(device), points_3d.to(device)
+
+            if batch_idx % 2 != 0:
+                continue
+
+            left_image, targets = left_image.to(device), left_points.to(device)
+            left_points = [[f"{value:.1f}" for value in point] for point in left_points.tolist()]
             outputs = model(left_image).squeeze()
+
+            outputs = outputs.view_as(targets)
+
             test_loss += criterion(outputs, targets).sum().item()  # sum up batch loss
-            pred = torch.where(outputs > 0.5, 1, 0)  # get the index of the max log-probability
-            correct += pred.eq(targets.view_as(pred)).sum().item()
+            
+            outputs_denorm = denormalize_2d_points(outputs.to('cpu'))
+            targets_denorm = denormalize_2d_points(targets.to('cpu'))
+
+            outputs_denorm = torch.tensor(outputs_denorm)
+            targets_denorm = torch.tensor(targets_denorm)
+
+            # Calculate RMSE for each point
+            batch_rmse = torch.sqrt(torch.mean((outputs_denorm - targets_denorm)**2, dim=1))
+            total_rmse += torch.sum(batch_rmse).item()
+            num_samples += len(batch_rmse)
+
+            # Calculate distance for each point
+            batch_distance = torch.sqrt(torch.sum((outputs_denorm - targets_denorm)**2, dim=1))
+            total_distance += torch.sum(batch_distance).item()
+            
 
     test_loss /= len(eval_loader.dataset)
 
-    print(f'Original points: {targets}')
-    print(f'Predicted points: {outputs}')
+    print(f'Original points: {targets_denorm}')
+    print(f'Predicted points: {outputs_denorm}')
 
-    # for the 1st epoch, the average loss is 0.0001 and the accuracy 97-98%
-    # using default settings. After completing the 10th epoch, the average
-    # loss is 0.0000 and the accuracy 99.5-100% using default settings.
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(eval_loader.dataset),
-        100. * correct / len(eval_loader.dataset)))
+    print('\nTest set: Average loss: {:.4f}'.format(
+        test_loss, len(eval_loader.dataset)))
+
+    # Calculate average distance
+    average_distance = total_distance / num_samples
+    print(f'Average distance: {average_distance:.4f}')
+    print()
+
+    return test_loss, average_distance
+
+
+def denormalize_2d_points(points):
+    """
+    Denormalize multiple points from the 0 to 1 range back to the original range.
+    """
+    min_values = torch.tensor([77, 217])
+    max_values = torch.tensor([984, 610])
+    
+    denormalized_points = []
+    for point in points:
+        point_tensor = torch.tensor(point)
+        denorm_point = point_tensor * (max_values - min_values) + min_values
+        denormalized_points.append(denorm_point.tolist())
+    
+    return denormalized_points
 
 
 def main():
@@ -86,10 +197,14 @@ def main():
                         help='input batch size for testing (default: 4)')
     parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 4)')
-    parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.05, metavar='LR',
                         help='learning rate (default: 1.0)')
-    parser.add_argument('--gamma', type=float, default=0.1, metavar='M',
+    parser.add_argument('--gamma', type=float, default=0.2, metavar='M',
                         help='Learning rate step gamma (default: 0.1)')
+    parser.add_argument('--patience', type=int, default=3, metavar='N',
+                        help='patience for early stopping (default: 5)')
+    parser.add_argument('--delta', type=float, default=0, metavar='M',
+                        help='delta for early stopping (default: 0)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--no-mps', action='store_true', default=False,
@@ -98,9 +213,9 @@ def main():
                         help='quickly check a single pass')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+    parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--save-model', action='store_true', default=False,
+    parser.add_argument('--save-model', action='store_true', default=True,
                         help='For Saving the current Model')
     args = parser.parse_args()
     
@@ -111,6 +226,7 @@ def main():
 
     if use_cuda:
         device = torch.device("cuda")
+        device_ids = [0, 1, 2, 3]
     elif use_mps:
         device = torch.device("mps")
     else:
@@ -119,16 +235,33 @@ def main():
     
     # Initialize the model
     model = NeedleLocalizationNetwork().to(device)
+    if device_ids is not None:
+        model = nn.DataParallel(model, device_ids=device_ids)
+        
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    early_stopping = EarlyStopping(patience=args.patience, delta=args.delta)
 
-    scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
+    scheduler = StepLR(optimizer, step_size=3, gamma=args.gamma)
+
+    # Load the previously trained model
+    #model.load_state_dict(torch.load("Saved_Models/SimpleNet_2D.pt"))
+    #model.eval()
+
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch)
-        test(model, device, train_loader)
-        scheduler.step()
+        train_loss = train(args, model, device, train_loader, optimizer, scheduler, epoch)
+        test_loss, avg_dist = test(model, device, eval_loader)
+
+        if avg_dist < 50:
+            break
+
+        # Check for early stopping
+        early_stopping(test_loss, model)
+        if early_stopping.early_stop:
+            print("Early stopping")
+            break
 
     if args.save_model:
-        torch.save(model.state_dict(), "siamese_network.pt")
+        torch.save(model.state_dict(), "Saved_Models/SimpleNet_2D.pt")
 
 
 if __name__ == '__main__':

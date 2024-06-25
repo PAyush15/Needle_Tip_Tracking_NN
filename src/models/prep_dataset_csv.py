@@ -51,68 +51,68 @@ class CustomDataset(Dataset):
         points_3d = points_3d.strip('()').split(',')
         points_3d = [float(value) for value in points_3d]
 
-        # min_vals = (542.104736, -559.603027, 273.826233)
-        # max_vals = (584.9863, -335.045776, 312.355347)
-
-        # normalized_3d_point = normalize_3d_point(min_vals, max_vals, points_3d)
+        normalized_3d_points = normalize_3d_points(points_3d)
+        normalized_2d_points = normalize_2d_points(left_points)
 
         left_image = torch.tensor(left_image, dtype=torch.float32)
         right_image = torch.tensor(right_image, dtype=torch.float32)
-        left_points = torch.tensor(left_points, dtype=torch.float32)
+        left_points = torch.tensor(normalized_2d_points, dtype=torch.float32)
         right_points = torch.tensor(right_points, dtype=torch.float32)
-        points_3d = torch.tensor(points_3d, dtype=torch.float32)
-
+        points_3d = torch.tensor(normalized_3d_points, dtype=torch.float32)
+        
         return left_image, right_image, left_points, right_points, points_3d
     
 
-def normalize_3d_point(min_vals, max_vals, point):
+def normalize_3d_points(points):
     """
-    Normalize a 3D point to a specified range.
-    
-    Args:
-        point (tuple or list): 3D point (x, y, z)
-        min_vals (tuple or list): Minimum values for each coordinate (x_min, y_min, z_min)
-        max_vals (tuple or list): Maximum values for each coordinate (x_max, y_max, z_max)
-        
-    Returns:
-        tuple: Normalized 3D point (x_normalized, y_normalized, z_normalized)
+    Normalize multiple points to the 0 to 1 range.
     """
-    x_min, y_min, z_min = min_vals
-    x_max, y_max, z_max = max_vals
+    min_values = (530.657593, -559.603027, 275.303467)
+    max_values = (594.552063, -335.045776, 321.951843)
     
-    x_normalized = (2 * (point[0] - x_min) / (x_max - x_min)) - 1
-    y_normalized = (2 * (point[1] - y_min) / (y_max - y_min)) - 1
-    z_normalized = (2 * (point[2] - z_min) / (z_max - z_min)) - 1
     
-    return [x_normalized, y_normalized, z_normalized]
+    x_norm = (points[0] - min_values[0]) / (max_values[0] - min_values[0])
+    y_norm = (points[1] - min_values[1]) / (max_values[1] - min_values[1])
+    z_norm = (points[2] - min_values[2]) / (max_values[2] - min_values[2])
+
+    return [x_norm, y_norm, z_norm]
 
 
+def normalize_2d_points(points):
+    """
+    Normalize multiple points to the 0 to 1 range.
+    """
+    min_values = (77, 217)
+    max_values = (984, 610)
+    
+    x_norm = (points[0] - min_values[0]) / (max_values[0] - min_values[0])
+    y_norm = (points[1] - min_values[1]) / (max_values[1] - min_values[1])
 
-# Example usage
+    return [x_norm, y_norm]
 
-"""
 
 train_csv_files = ['data/CSVs/Training_5per.csv', 'data/CSVs/Training_10per.csv', 'data/CSVs/Training_15per.csv']
-eval_csv_files = ['data/CSVs/Validation_5per.csv', 'data/CSVs/Validation_10per.csv', 'data/CSVs/Validation_15per.csv']
+eval_csv_files = ['data/CSVs/Testing_5per.csv', 'data/CSVs/Testing_10per.csv', 'data/CSVs/Testing_15per.csv']
+test_csv_files = ['data/CSVs/Validation_5per.csv', 'data/CSVs/Validation_10per.csv', 'data/CSVs/Validation_15per.csv']
 
 image_folders_left = ['src/data/Needle_Images_New/Training_Data_Left_5per_gelatin/', 
-                     'src/data/Needle_Images_New/Training_Data_Left_10per_gelatin/',
-                     'src/data/Needle_Images_New/Training_Data_Left_15per_gelatin/']
+                     'src/data/Needle_Images_New/Training_Data_Left_10per_gelatin/', 'src/data/Needle_Images_New/Training_Data_Left_15per_gelatin/']
 image_folders_right = ['src/data/Needle_Images_New/Training_Data_Right_5per_gelatin/',
-                      'src/data/Needle_Images_New/Training_Data_Right_10per_gelatin/',
-                      'src/data/Needle_Images_New/Training_Data_Right_15per_gelatin/']
-"""
+                      'src/data/Needle_Images_New/Training_Data_Right_10per_gelatin/', 'src/data/Needle_Images_New/Training_Data_Right_15per_gelatin/']
 
+"""
 train_csv_files = ['data/CSVs/Training_Sample.csv']
 eval_csv_files = ['data/CSVs/Validation_Sample.csv']
+test_csv_files = ['data/CSVs/Insertion_test.csv']
 
 image_folders_left = ['src/data/Needle_Images_New/Training_Data_Left_5per_gelatin/']
 image_folders_right = ['src/data/Needle_Images_New/Training_Data_Right_5per_gelatin/']
-
+"""
 
 # Read CSV file with UTF-8 encoding
 train_dfs = [pd.read_csv(file, encoding='utf-8') for file in train_csv_files]
 eval_dfs = [pd.read_csv(file, encoding='utf-8') for file in eval_csv_files]
+test_dfs = [pd.read_csv(file, encoding='utf8') for file in test_csv_files]
 
 
 # Define transformations for images (if needed)
@@ -123,6 +123,7 @@ transform = transforms.Compose([
 
 train_dataset_list = []
 eval_dataset_list = []
+test_dataset_list = []
 
 for df, folder_left, folder_right in zip(train_dfs, image_folders_left, image_folders_right):
     train_dataset_list.append(CustomDataset(df, folder_left, folder_right, transform=transform))
@@ -130,17 +131,22 @@ for df, folder_left, folder_right in zip(train_dfs, image_folders_left, image_fo
 for df, folder_left, folder_right in zip(eval_dfs, image_folders_left, image_folders_right):
     eval_dataset_list.append(CustomDataset(df, folder_left, folder_right, transform=transform))
 
+for df, folder_left, folder_right in zip(test_dfs, image_folders_left, image_folders_right):
+    test_dataset_list.append(CustomDataset(df, folder_left, folder_right, transform=transform))
 
 # Create train and eval datasets
 train_dataset = ConcatDataset(train_dataset_list)
 eval_dataset = ConcatDataset(eval_dataset_list)
+test_dataset = ConcatDataset(test_dataset_list)
 
-print(f'Datasets created. Moving to dataloaders.................')
+print(f'Datasets created. Creating dataloaders.................')
 
 # Create train and eval data loaders
-train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-eval_loader = DataLoader(eval_dataset, batch_size=1, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=False)
+eval_loader = DataLoader(eval_dataset, batch_size=4, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
 
 print("DataLoader objects created successfully.")
 print(f"Size of training dataset: {len(train_loader.dataset)}")
 print(f"Size of validation dataset: {len(eval_loader.dataset)}")
+print(f"Size of test dataset: {len(test_loader.dataset)}")
