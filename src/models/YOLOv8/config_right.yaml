@@ -1,0 +1,14 @@
+path: /home/Patel/Dokumente/lightning-hydra-template/src/data/data_right
+train: images/train  # Path to training images directory
+val:  images/val  # Path to validation images directory
+
+
+names: 
+  0: needle_tip  # Class names
+
+
+# Training hyperparameters
+train_params:
+  device: [0, 1, 2, 3]
+
+
